@@ -26,7 +26,7 @@ const INITIAL_APPS = [
   { name: 'BeReal',      packageName: 'com.bereal.ft',               icon: '📷', color: '#000000', selected: false },
 ];
 
-export default function SetBudget() {
+export default function SetBudget({ onBudgetSaved = () => {} }) {
   const [apps, setApps]       = useState(INITIAL_APPS);
   const [minutes, setMinutes] = useState(120);
   const [search, setSearch]   = useState('');
@@ -55,6 +55,8 @@ export default function SetBudget() {
       '✅ ¡Guardado!',
       `Presupuesto: ${minutes} min\nApps monitoreadas: ${selected.length}\nUmbrales: ${config.thresholds.warn}/${config.thresholds.alert}/${config.thresholds.limit} min`
     );
+    // Llamar callback después de guardar exitosamente
+    setTimeout(() => onBudgetSaved(), 1000);
   };
 
   const filteredApps = apps.filter(a =>
