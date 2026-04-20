@@ -7,59 +7,107 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Platform,
 } from 'react-native';
 import AvatarOverlay from './components/AvatarOverlay';
 import { loadBudget } from './services/budgetService';
 import {
-  generateRandomUsage,
+  getInstalledApps,
+  checkPackageUsageStatsPermission,
+  requestPackageUsageStatsPermission,
+} from './services/appListService';
+import {
+  subscribeToAppUsage,
   calculateUsagePercentage,
   getTotalUsageTime,
 } from './services/usageService';
 
 export default function DashboardScreen() {
   const [budgetConfig, setBudgetConfig] = useState(null);
+  const [installedApps, setInstalledApps] = useState([]);
   const [usageByApp, setUsageByApp] = useState({});
   const [currentPercentage, setCurrentPercentage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [usageStatsPermitted, setUsageStatsPermitted] = useState(true);
+  const [unsubscribe, setUnsubscribe] = useState(null);
 
-  // Cargar budget config y generar datos aleatorios iniciales
+  // Cargar budget y apps, iniciar monitoreo en tiempo real
   useEffect(() => {
     const initDashboard = async () => {
-      const config = await loadBudget();
-      if (config) {
+      try {
+        setLoading(true);
+        
+        // Verificar permiso PACKAGE_USAGE_STATS primero
+        if (Platform.OS === 'android') {
+          const hasPermission = await checkPackageUsageStatsPermission();
+          setUsageStatsPermitted(hasPermission);
+          
+          if (!hasPermission) {
+            console.warn('PACKAGE_USAGE_STATS no otorgado');
+            // Preguntar si desea solicitar el permiso
+            setTimeout(() => {
+              requestPackageUsageStatsPermission();
+            }, 500);
+          }
+        }
+        
+        // Obtener configuración de presupuesto
+        const config = await loadBudget();
+        if (!config) {
+          Alert.alert('Configuración no encontrada', 'Por favor, configura tu presupuesto primero.');
+          setLoading(false);
+          return;
+        }
         setBudgetConfig(config);
 
-        // Generar datos aleatorios de uso
-        const selectedApps = config.monitoredApps.map(packageName => ({
-          packageName,
-        }));
-        const usage = generateRandomUsage(selectedApps, config.totalMinutes);
-        setUsageByApp(usage);
+        // Obtener lista real de apps instaladas
+        const apps = await getInstalledApps();
+        setInstalledApps(apps);
+        console.log(`✓ Dashboard: ${apps.length} apps disponibles`);
 
-        // Calcular porcentaje y estado del avatar
-        const totalUsed = getTotalUsageTime(usage);
-        const percentage = calculateUsagePercentage(totalUsed, config.totalMinutes);
-        setCurrentPercentage(percentage);
-      } else {
-        Alert.alert('Configuración no encontrada', 'Por favor, configura tu presupuesto primero.');
+        // Crear array de apps a monitorear
+        const appsToMonitor = apps.filter(app =>
+          config.monitoredApps.includes(app.packageName)
+        );
+
+        // Iniciar monitoreo en tiempo real (polling cada 5 segundos)
+        if (Platform.OS === 'android' && appsToMonitor.length > 0) {
+          const unsub = subscribeToAppUsage(
+            appsToMonitor,
+            5000, // 5 segundos
+            (usage) => {
+              setUsageByApp(usage);
+              const totalUsed = getTotalUsageTime(usage);
+              const percentage = calculateUsagePercentage(totalUsed, config.totalMinutes);
+              setCurrentPercentage(percentage);
+            }
+          );
+          setUnsubscribe(() => unsub);
+          console.log('✓ Monitoreo en tiempo real iniciado');
+        }
+      } catch (error) {
+        console.error('Error inicializando dashboard:', error);
+        Alert.alert('Error', 'No se pudo inicializar el dashboard');
+      } finally {
+        setLoading(false);
       }
     };
 
     initDashboard();
+
+    // Cleanup - detener polling al desmontar
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
 
-  // onClick para regenerar datos aleatorios (botón Refrescar)
+  // Botón manual para refrescar (opcional)
   const handleRefresh = () => {
     if (!budgetConfig) return;
-
-    const selectedApps = budgetConfig.monitoredApps.map(packageName => ({
-      packageName,
-    }));
-    const usage = generateRandomUsage(selectedApps, budgetConfig.totalMinutes);
-    setUsageByApp(usage);
-
-    const totalUsed = getTotalUsageTime(usage);
-    const percentage = calculateUsagePercentage(totalUsed, budgetConfig.totalMinutes);
-    setCurrentPercentage(percentage);
+    console.log('Datos actualizados manualmente');
+    // El monitoreo ya está activo, este botón es solo para UI feedback
   };
 
   // onTouchAvatar — solo propagar el evento (el avatar maneja el globo de texto internamente)
@@ -67,13 +115,18 @@ export default function DashboardScreen() {
     // El AvatarOverlay maneja el speech bubble automáticamente
   };
 
-  if (!budgetConfig) {
+  if (!budgetConfig || loading) {
     return (
       <SafeAreaView style={styles.container}>
         <Text style={styles.loadingText}>Cargando...</Text>
       </SafeAreaView>
     );
   }
+
+  // Obtener apps monitoreadas con su información
+  const monitoredAppsInfo = installedApps.filter(app =>
+    budgetConfig.monitoredApps.includes(app.packageName)
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -83,6 +136,20 @@ export default function DashboardScreen() {
           <Text style={styles.title}>Dashboard</Text>
           <Text style={styles.date}>{new Date().toLocaleDateString('es-ES')}</Text>
         </View>
+
+        {/* Advertencia - Permiso PACKAGE_USAGE_STATS no otorgado */}
+        {!usageStatsPermitted && Platform.OS === 'android' && (
+          <View style={styles.warningBanner}>
+            <Text style={styles.warningTitle}>⚠️ Permiso Requerido</Text>
+            <Text style={styles.warningText}>Habilita "Estadísticas de uso" en Settings para monitoreo en tiempo real.</Text>
+            <TouchableOpacity
+              style={styles.warningButton}
+              onPress={requestPackageUsageStatsPermission}
+            >
+              <Text style={styles.warningButtonText}>Abrir Settings</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Avatar Section */}
         <View style={styles.avatarSection}>
@@ -112,23 +179,37 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Apps Usage List (temporary) */}
+        {/* Apps Usage List - Real time data */}
         <View style={styles.appsSection}>
-          <Text style={styles.sectionTitle}>Aplicaciones</Text>
-          {budgetConfig.monitoredApps.map((packageName, index) => {
-            const minutes = usageByApp[packageName] || 0;
-            return (
-              <View key={index} style={styles.appRow}>
-                <Text style={styles.appName}>{packageName}</Text>
-                <Text style={styles.appMinutes}>{minutes} min</Text>
-              </View>
-            );
-          })}
+          <Text style={styles.sectionTitle}>Aplicaciones Monitoreadas ({monitoredAppsInfo.length})</Text>
+          {monitoredAppsInfo.length > 0 ? (
+            monitoredAppsInfo.map((app) => {
+              const minutes = usageByApp[app.packageName] || 0;
+              const percentage = Math.round((minutes / budgetConfig.totalMinutes) * 100);
+              return (
+                <View key={app.packageName} style={styles.appRow}>
+                  <View style={styles.appInfo}>
+                    <Text style={styles.appEmoji}>{app.icon || '📱'}</Text>
+                    <View style={styles.appDetails}>
+                      <Text style={styles.appName}>{app.name}</Text>
+                      <Text style={styles.appPackage}>{app.packageName}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.appUsage}>
+                    <Text style={styles.appMinutes}>{Math.round(minutes)} min</Text>
+                    <Text style={styles.appPercent}>{percentage}%</Text>
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.emptyText}>Sin apps monitoreadas</Text>
+          )}
         </View>
 
         {/* Refresh Button */}
         <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
-          <Text style={styles.refreshButtonText}>🔄 Refrescar Datos</Text>
+          <Text style={styles.refreshButtonText}>🔄 Actualizar</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -211,22 +292,61 @@ const styles = StyleSheet.create({
   appRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    alignItems: 'center',
+    paddingVertical: 12,
     paddingHorizontal: 12,
     backgroundColor: '#FFF',
     borderRadius: 8,
     marginBottom: 8,
     borderLeftWidth: 4,
     borderLeftColor: '#4CAF50',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  appInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  appEmoji: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  appDetails: {
+    flex: 1,
   },
   appName: {
     fontSize: 14,
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 2,
+  },
+  appPackage: {
+    fontSize: 11,
+    color: '#999',
+  },
+  appUsage: {
+    alignItems: 'flex-end',
   },
   appMinutes: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#4CAF50',
+  },
+  appPercent: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
   refreshButton: {
     marginHorizontal: 20,
@@ -239,5 +359,38 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  warningBanner: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FFF3CD',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFC107',
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#856404',
+    marginBottom: 4,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#856404',
+    marginBottom: 10,
+  },
+  warningButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFC107',
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  warningButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
   },
 });

@@ -1,36 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TextInput,
-  TouchableOpacity, StyleSheet, Alert
+  TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform
 } from 'react-native';
 import AppRow from './components/AppRow';
 import BudgetSlider from './components/BudgetSlider';
 import { saveBudget } from './services/budgetService';
-
-// Apps simuladas (en la app real vendrían de expo-usage-stats)
-const INITIAL_APPS = [
-  { name: 'Instagram',   packageName: 'com.instagram.android',      icon: '📸', color: '#833AB4', selected: true  },
-  { name: 'TikTok',      packageName: 'com.zhiliaoapp.musically',    icon: '🎵', color: '#010101', selected: true  },
-  { name: 'YouTube',     packageName: 'com.google.android.youtube',  icon: '▶️', color: '#FF0000', selected: false },
-  { name: 'WhatsApp',    packageName: 'com.whatsapp',                icon: '💬', color: '#25D366', selected: false },
-  { name: 'X (Twitter)', packageName: 'com.twitter.android',         icon: '𝕏',  color: '#14171A', selected: false },
-  { name: 'Snapchat',    packageName: 'com.snapchat.android',        icon: '👻', color: '#FFFC00', selected: false },
-  { name: 'Facebook',    packageName: 'com.facebook.katana',         icon: '👍', color: '#1877F2', selected: false },
-  { name: 'Netflix',     packageName: 'com.netflix.mediaclient',     icon: '🎬', color: '#E50914', selected: false },
-  { name: 'Twitch',      packageName: 'tv.twitch.android.app',       icon: '🎮', color: '#9146FF', selected: false },
-  { name: 'Spotify',     packageName: 'com.spotify.music',           icon: '🎧', color: '#1DB954', selected: false },
-  { name: 'Reddit',      packageName: 'com.reddit.frontpage',        icon: '🤖', color: '#FF4500', selected: false },
-  { name: 'Pinterest',   packageName: 'com.pinterest',               icon: '📌', color: '#E60023', selected: false },
-  { name: 'Telegram',    packageName: 'org.telegram.messenger',      icon: '✈️', color: '#2CA5E0', selected: false },
-  { name: 'LinkedIn',    packageName: 'com.linkedin.android',        icon: '💼', color: '#0A66C2', selected: false },
-  { name: 'BeReal',      packageName: 'com.bereal.ft',               icon: '📷', color: '#000000', selected: false },
-];
+import {
+  getInstalledApps,
+  requestQueryAppPermission,
+  checkPackageUsageStatsPermission,
+  requestPackageUsageStatsPermission,
+  DEFAULT_APPS
+} from './services/appListService';
 
 export default function SetBudget({ onBudgetSaved = () => {} }) {
-  const [apps, setApps]       = useState(INITIAL_APPS);
+  const [apps, setApps]       = useState(DEFAULT_APPS);
+  const [loadingApps, setLoadingApps] = useState(true);
+  const [appsError, setAppsError] = useState(null);
+  const [usageStatsPermitted, setUsageStatsPermitted] = useState(true);
   const [minutes, setMinutes] = useState(120);
   const [search, setSearch]   = useState('');
   const [saving, setSaving]   = useState(false);
+
+  // Cargar lista de apps del sistema en el primer render
+  useEffect(() => {
+    const loadApps = async () => {
+      try {
+        setLoadingApps(true);
+        setAppsError(null);
+        
+        // Solicitar permisos si es Android
+        if (Platform.OS === 'android') {
+          // Verificar QUERY_ALL_PACKAGES
+          const permissionGranted = await requestQueryAppPermission();
+          if (!permissionGranted) {
+            console.warn('Permiso QUERY_ALL_PACKAGES no concedido, usando lista de ejemplo');
+          }
+          
+          // Verificar PACKAGE_USAGE_STATS
+          const usagePermitted = await checkPackageUsageStatsPermission();
+          setUsageStatsPermitted(usagePermitted);
+          if (!usagePermitted) {
+            console.warn('PACKAGE_USAGE_STATS no otorgado');
+          }
+        }
+        
+        // Obtener la lista de apps
+        const loadedApps = await getInstalledApps();
+        setApps(loadedApps);
+      } catch (error) {
+        console.error('Error al cargar apps:', error);
+        setAppsError(error.message);
+        setApps(DEFAULT_APPS);
+      } finally {
+        setLoadingApps(false);
+      }
+    };
+
+    loadApps();
+  }, []);
 
   // onClick_AppSelection — toggle de selección de app
   const handleToggleApp = (packageName) => {
@@ -83,23 +112,58 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
           </View>
         </View>
 
-        {/* Buscador */}
-        <TextInput
-          style={styles.search}
-          placeholder="Buscar app..."
-          placeholderTextColor="#7A6E62"
-          value={search}
-          onChangeText={setSearch}
-        />
+        {/* Advertencia - Permiso PACKAGE_USAGE_STATS no otorgado */}
+        {!usageStatsPermitted && Platform.OS === 'android' && (
+          <View style={styles.warningBanner}>
+            <Text style={styles.warningTitle}>⚠️ Permiso Requerido</Text>
+            <Text style={styles.warningText}>Para monitoreo en tiempo real, habilita "Estadísticas de uso".</Text>
+            <TouchableOpacity
+              style={styles.warningButton}
+              onPress={requestPackageUsageStatsPermission}
+            >
+              <Text style={styles.warningButtonText}>Habilitar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-        {/* Lista de apps */}
-        {filteredApps.map(app => (
-          <AppRow
-            key={app.packageName}
-            app={app}
-            onToggle={handleToggleApp}
-          />
-        ))}
+        {/* Indicador de carga */}
+        {loadingApps ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1A1410" />
+            <Text style={styles.loadingText}>Cargando apps del sistema...</Text>
+          </View>
+        ) : (
+          <>
+            {/* Mensaje de advertencia si se usa lista de ejemplo */}
+            {appsError && (
+              <View style={styles.warningContainer}>
+                <Text style={styles.warningText}>⚠️ Usando lista de ejemplo ({appsError})</Text>
+              </View>
+            )}
+
+            {/* Buscador */}
+            <TextInput
+              style={styles.search}
+              placeholder="Buscar app..."
+              placeholderTextColor="#7A6E62"
+              value={search}
+              onChangeText={setSearch}
+            />
+
+            {/* Lista de apps */}
+            {filteredApps.length > 0 ? (
+              filteredApps.map(app => (
+                <AppRow
+                  key={app.packageName}
+                  app={app}
+                  onToggle={handleToggleApp}
+                />
+              ))
+            ) : (
+              <Text style={styles.noAppsText}>No se encontraron apps</Text>
+            )}
+          </>
+        )}
       </View>
 
       {/* ── Sección: Presupuesto ── */}
@@ -196,6 +260,38 @@ const styles = StyleSheet.create({
     color: '#1A1410',
     marginBottom: 12,
   },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#7A6E62',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  warningContainer: {
+    backgroundColor: '#FFF5E6',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#FFD99F',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#B8860B',
+    fontWeight: '600',
+  },
+  noAppsText: {
+    fontSize: 14,
+    color: '#7A6E62',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
   sectionLabel: {
     fontSize: 14,
     fontWeight: '800',
@@ -217,5 +313,39 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: -0.2,
+  },
+  warningBanner: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFF3CD',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFC107',
+  },
+  warningTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#856404',
+    marginBottom: 3,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#856404',
+    marginBottom: 8,
+  },
+  warningButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFC107',
+    borderRadius: 6,
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
+  warningButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
   },
 });

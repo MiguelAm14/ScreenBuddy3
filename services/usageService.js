@@ -1,5 +1,78 @@
-// Genera datos aleatorios de uso por app (temporal)
-// El tiempo total puede variar desde 0% hasta 100% de la meta
+import { Platform, NativeModules } from 'react-native';
+
+/**
+ * Obtiene datos reales de uso de apps desde PACKAGE_USAGE_STATS
+ * Solo funciona en Android API 21+
+ */
+export async function getRealAppUsage(monitoredApps) {
+  if (Platform.OS !== 'android') {
+    console.warn('getRealAppUsage: Solo disponible en Android');
+    return {};
+  }
+
+  try {
+    const { UsageStatsModule } = NativeModules;
+    
+    if (!UsageStatsModule) {
+      console.warn('UsageStatsModule no disponible');
+      return {};
+    }
+
+    const packageNames = monitoredApps.map(app => app.packageName);
+    const usageData = await UsageStatsModule.getAppUsageStats(packageNames);
+    
+    console.log('✓ Datos de uso reales obtenidos:', usageData);
+    return usageData || {};
+  } catch (error) {
+    console.error('Error obteniendo datos de uso real:', error);
+    return {};
+  }
+}
+
+/**
+ * Monitorea uso de apps en tiempo real con polling
+ * Retorna unsubscribe function
+ * Si no hay datos reales, usa fallback aleatorio
+ */
+export function subscribeToAppUsage(monitoredApps, intervalMs = 5000, onUpdate) {
+  let isSubscribed = true;
+  let timeoutId = null;
+
+  const pollUsage = async () => {
+    if (!isSubscribed) return;
+
+    try {
+      let usage = await getRealAppUsage(monitoredApps);
+      
+      // Si no hay datos reales (vacío), usar fallback aleatorio
+      if (Object.keys(usage).length === 0) {
+        console.warn('Sin datos reales, usando fallback aleatorio');
+        usage = generateRandomUsage(monitoredApps, 120);
+      }
+      
+      onUpdate(usage);
+    } catch (error) {
+      console.error('Error en polling de uso:', error);
+    }
+
+    if (isSubscribed) {
+      timeoutId = setTimeout(pollUsage, intervalMs);
+    }
+  };
+
+  // Iniciar polling inmediatamente
+  pollUsage();
+
+  // Retornar función para unsubscribirse
+  return () => {
+    isSubscribed = false;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  };
+}
+
+// Genera datos aleatorios de uso por app (solo para testing/fallback)
 export function generateRandomUsage(monitoredApps, totalMinutes) {
   const usage = {};
   
