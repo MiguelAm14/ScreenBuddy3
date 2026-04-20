@@ -11,11 +11,7 @@ import {
 } from 'react-native';
 import AvatarOverlay from './components/AvatarOverlay';
 import { loadBudget } from './services/budgetService';
-import {
-  getInstalledApps,
-  checkPackageUsageStatsPermission,
-  requestPackageUsageStatsPermission,
-} from './services/appListService';
+import { getInstalledApps } from './services/appListService';
 import {
   subscribeToAppUsage,
   calculateUsagePercentage,
@@ -31,24 +27,17 @@ export default function DashboardScreen() {
   const [usageStatsPermitted, setUsageStatsPermitted] = useState(true);
   const [unsubscribe, setUnsubscribe] = useState(null);
 
-  // Cargar budget y apps, iniciar monitoreo en tiempo real
+  // Cargar budget y apps, iniciar monitoreo en tiempo real (con datos simulados)
   useEffect(() => {
     const initDashboard = async () => {
       try {
         setLoading(true);
         
-        // Verificar permiso PACKAGE_USAGE_STATS primero
+        // En Expo, no podemos acceder a PACKAGE_USAGE_STATS sin módulo nativo
+        // Mostramos un warning
         if (Platform.OS === 'android') {
-          const hasPermission = await checkPackageUsageStatsPermission();
-          setUsageStatsPermitted(hasPermission);
-          
-          if (!hasPermission) {
-            console.warn('PACKAGE_USAGE_STATS no otorgado');
-            // Preguntar si desea solicitar el permiso
-            setTimeout(() => {
-              requestPackageUsageStatsPermission();
-            }, 500);
-          }
+          setUsageStatsPermitted(false);
+          console.info('Usando datos simulados actualizados cada 5 segundos');
         }
         
         // Obtener configuración de presupuesto
@@ -70,8 +59,8 @@ export default function DashboardScreen() {
           config.monitoredApps.includes(app.packageName)
         );
 
-        // Iniciar monitoreo en tiempo real (polling cada 5 segundos)
-        if (Platform.OS === 'android' && appsToMonitor.length > 0) {
+        // Iniciar monitoreo con datos simulados (polling cada 5 segundos)
+        if (appsToMonitor.length > 0) {
           const unsub = subscribeToAppUsage(
             appsToMonitor,
             5000, // 5 segundos
@@ -83,7 +72,7 @@ export default function DashboardScreen() {
             }
           );
           setUnsubscribe(() => unsub);
-          console.log('✓ Monitoreo en tiempo real iniciado');
+          console.log('✓ Monitoreo de simulación iniciado (datos aleatorios cada 5s)');
         }
       } catch (error) {
         console.error('Error inicializando dashboard:', error);
@@ -137,17 +126,11 @@ export default function DashboardScreen() {
           <Text style={styles.date}>{new Date().toLocaleDateString('es-ES')}</Text>
         </View>
 
-        {/* Advertencia - Permiso PACKAGE_USAGE_STATS no otorgado */}
+        {/* Advertencia - Datos Simulados en Expo */}
         {!usageStatsPermitted && Platform.OS === 'android' && (
           <View style={styles.warningBanner}>
-            <Text style={styles.warningTitle}>⚠️ Permiso Requerido</Text>
-            <Text style={styles.warningText}>Habilita "Estadísticas de uso" en Settings para monitoreo en tiempo real.</Text>
-            <TouchableOpacity
-              style={styles.warningButton}
-              onPress={requestPackageUsageStatsPermission}
-            >
-              <Text style={styles.warningButtonText}>Abrir Settings</Text>
-            </TouchableOpacity>
+            <Text style={styles.warningTitle}>ℹ️ Datos Simulados</Text>
+            <Text style={styles.warningText}>El dashboard muestra datos simulados actualizados cada 5 segundos. En una versión compilada nativa, mostrarías datos reales de uso.</Text>
           </View>
         )}
 

@@ -33,96 +33,39 @@ export const requestQueryAppPermission = async () => {
 
 /**
  * Verifica si PACKAGE_USAGE_STATS está permitido
- * Este es un permiso especial que requiere acción manual en Settings
+ * NOTA: En Expo, requiere módulo nativo. Por ahora retorna true.
+ * El usuario debe habilitar manualmente en Settings si quiere datos reales.
  */
 export const checkPackageUsageStatsPermission = async () => {
-  if (Platform.OS !== 'android') {
-    return true;
-  }
-
-  try {
-    const { UsageStatsModule } = NativeModules;
-    if (!UsageStatsModule || !UsageStatsModule.checkUsageStatsPermission) {
-      console.warn('UsageStatsModule no disponible');
-      return false;
-    }
-
-    const hasPermission = await UsageStatsModule.checkUsageStatsPermission();
-    console.log('✓ PACKAGE_USAGE_STATS permitido:', hasPermission);
-    return hasPermission;
-  } catch (error) {
-    console.error('Error verificando PACKAGE_USAGE_STATS:', error);
-    return false;
-  }
+  // En Expo sin módulo nativo, no podemos verificar
+  // Retornamos false para mostrar el warning al usuario
+  console.info('PACKAGE_USAGE_STATS: Requiere módulo nativo (no disponible en Expo)');
+  return false;
 };
 
 /**
  * Solicita PACKAGE_USAGE_STATS y guía al usuario
- * Este permiso no se puede solicitar en runtime, requiere acción manual
+ * NOTA: En Expo con React Native, esto es limitado.
+ * Se muestra un alert informativo.
  */
 export const requestPackageUsageStatsPermission = async () => {
   if (Platform.OS !== 'android') {
     return true;
   }
 
-  try {
-    // Primero verificar si ya está permitido
-    const alreadyGranted = await checkPackageUsageStatsPermission();
-    if (alreadyGranted) {
-      console.log('✓ PACKAGE_USAGE_STATS ya está permitido');
-      return true;
-    }
-
-    // No está permitido, mostrar diálogo con instrucciones
-    return new Promise((resolve) => {
-      Alert.alert(
-        '📊 Permiso Requerido: Estadísticas de Uso',
-        'ScreenBuddy necesita acceso a tus estadísticas de uso para monitorear el tiempo en cada app.\n\nEste es un permiso especial que debes habilitar manualmente en Settings.',
-        [
-          {
-            text: 'Cancelar',
-            onPress: () => resolve(false),
-            style: 'cancel',
-          },
-          {
-            text: 'Ir a Settings',
-            onPress: async () => {
-              try {
-                // Abrir configuración de la app
-                const packageName = 'com.anonymous.ScreenBuddy3';
-                const intent = `android.settings.APP_USAGE_SETTINGS`;
-                
-                // Intentar abrir Settings de uso de apps (API 21+)
-                await Linking.openURL(`android://settings/usage`);
-                
-                // Esperar y re-verificar permiso después de que vuelva
-                setTimeout(async () => {
-                  const nowGranted = await checkPackageUsageStatsPermission();
-                  resolve(nowGranted);
-                }, 2000);
-              } catch (error) {
-                console.error('Error abriendo Settings:', error);
-                
-                // Fallback: instrucciones manuales
-                Alert.alert(
-                  'Habilitar Manualmente',
-                  `1. Abre Settings
-2. Ve a Apps & notifications > App permissions > Usage stats
-3. Busca "ScreenBuddy3" y activa el permiso
-4. Vuelve a la app`,
-                  [{ text: 'Entendido', onPress: () => resolve(false) }]
-                );
-              }
-            },
-            style: 'default',
-          },
-        ]
-      );
-    });
-  } catch (error) {
-    console.error('Error en requestPackageUsageStatsPermission:', error);
-    return false;
-  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      '📊 Monitoreo en Tiempo Real',
+      'Para obtener datos REALES de uso de apps en tiempo real, ScreenBuddy necesitaría módulos nativos avanzados.\n\nPor ahora, el dashboard muestra datos simulados actualizados cada 5 segundos.\n\nEn futuras versiones implementaremos acceso a estadísticas reales.',
+      [
+        {
+          text: 'Entendido',
+          onPress: () => resolve(false),
+          style: 'default',
+        },
+      ]
+    );
+  });
 };
 
 /**

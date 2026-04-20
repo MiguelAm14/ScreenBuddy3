@@ -9,8 +9,6 @@ import { saveBudget } from './services/budgetService';
 import {
   getInstalledApps,
   requestQueryAppPermission,
-  checkPackageUsageStatsPermission,
-  requestPackageUsageStatsPermission,
   DEFAULT_APPS
 } from './services/appListService';
 
@@ -32,18 +30,15 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
         
         // Solicitar permisos si es Android
         if (Platform.OS === 'android') {
-          // Verificar QUERY_ALL_PACKAGES
+          // Solicitar QUERY_ALL_PACKAGES
           const permissionGranted = await requestQueryAppPermission();
           if (!permissionGranted) {
             console.warn('Permiso QUERY_ALL_PACKAGES no concedido, usando lista de ejemplo');
           }
           
-          // Verificar PACKAGE_USAGE_STATS
-          const usagePermitted = await checkPackageUsageStatsPermission();
-          setUsageStatsPermitted(usagePermitted);
-          if (!usagePermitted) {
-            console.warn('PACKAGE_USAGE_STATS no otorgado');
-          }
+          // Mostrar que PACKAGE_USAGE_STATS no es posible en Expo
+          setUsageStatsPermitted(false);
+          console.info('PACKAGE_USAGE_STATS: Usando datos simulados en Expo');
         }
         
         // Obtener la lista de apps
@@ -112,17 +107,11 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
           </View>
         </View>
 
-        {/* Advertencia - Permiso PACKAGE_USAGE_STATS no otorgado */}
+        {/* Advertencia - Datos Simulados en Expo */}
         {!usageStatsPermitted && Platform.OS === 'android' && (
           <View style={styles.warningBanner}>
-            <Text style={styles.warningTitle}>⚠️ Permiso Requerido</Text>
-            <Text style={styles.warningText}>Para monitoreo en tiempo real, habilita "Estadísticas de uso".</Text>
-            <TouchableOpacity
-              style={styles.warningButton}
-              onPress={requestPackageUsageStatsPermission}
-            >
-              <Text style={styles.warningButtonText}>Habilitar</Text>
-            </TouchableOpacity>
+            <Text style={styles.warningTitle}>ℹ️ Limitación de Expo</Text>
+            <Text style={styles.warningText}>Los datos de uso serán simulados en esta versión. Para datos reales, requiere compilación nativa con módulos Android.</Text>
           </View>
         )}
 
