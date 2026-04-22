@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import AvatarOverlay from './components/AvatarOverlay';
 import { loadBudget } from './services/budgetService';
-import { getInstalledApps } from './services/appListService';
+import { getInstalledApps, checkPackageUsageStatsPermission } from './services/appListService';
 import {
   subscribeToAppUsage,
   calculateUsagePercentage,
@@ -33,11 +33,15 @@ export default function DashboardScreen() {
       try {
         setLoading(true);
         
-        // En Expo, no podemos acceder a PACKAGE_USAGE_STATS sin módulo nativo
-        // Mostramos un warning
+        // Verificar si PACKAGE_USAGE_STATS está disponible
         if (Platform.OS === 'android') {
-          setUsageStatsPermitted(false);
-          console.info('Usando datos simulados actualizados cada 5 segundos');
+          const statsPermitted = await checkPackageUsageStatsPermission();
+          setUsageStatsPermitted(statsPermitted);
+          if (!statsPermitted) {
+            console.info('Usando datos simulados actualizados cada 5 segundos');
+          } else {
+            console.info('✓ Usando datos reales de uso del sistema');
+          }
         }
         
         // Obtener configuración de presupuesto

@@ -1,9 +1,9 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 
 /**
  * Obtiene datos reales de uso de apps desde PACKAGE_USAGE_STATS
- * NOTA: No disponible en Expo sin módulo nativo compilado
- * Retorna vacío para permitir fallback a datos aleatorios
+ * Intenta usar módulo nativo UsageStatsModule
+ * Fallback a datos aleatorios si no está disponible
  */
 export async function getRealAppUsage(monitoredApps) {
   if (Platform.OS !== 'android') {
@@ -11,8 +11,20 @@ export async function getRealAppUsage(monitoredApps) {
     return {};
   }
 
-  // En Expo, PACKAGE_USAGE_STATS requiere módulo nativo preconstruido
-  // Por ahora retornamos vacío para activar fallback
+  try {
+    const { UsageStatsModule } = NativeModules;
+    console.log('🔍 Buscando UsageStatsModule...', UsageStatsModule ? 'ENCONTRADO' : 'NO ENCONTRADO');
+    
+    if (UsageStatsModule && typeof UsageStatsModule.getAppUsageStats === 'function') {
+      const packageNames = monitoredApps.map(app => app.packageName);
+      const usage = await UsageStatsModule.getAppUsageStats(packageNames);
+      console.info('✓ PACKAGE_USAGE_STATS: Datos reales obtenidos', Object.keys(usage).length, 'apps');
+      return usage || {};
+    }
+  } catch (error) {
+    console.warn('Error al obtener datos reales:', error.message);
+  }
+
   console.info('PACKAGE_USAGE_STATS: Usando fallback a datos aleatorios');
   return {};
 }

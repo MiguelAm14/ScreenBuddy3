@@ -5,13 +5,12 @@ import { MONITOREABLE_APPS_MAP } from './constants';
 import React from 'react';
 
 /**
- * Lista de ejemplo de apps monitoreables
- * Se usa como fallback si no se pueden obtener las apps instaladas del sistema
+ * DEFAULT_APPS - DESHABILITADO: usa apps del SO en lugar de ejemplos
  */
-export const DEFAULT_APPS = Object.values(MONITOREABLE_APPS_MAP).map((app, index) => ({
-  ...app,
-  selected: index < 2,
-}));
+// export const DEFAULT_APPS = Object.values(MONITOREABLE_APPS_MAP).map((app, index) => ({
+//   ...app,
+//   selected: index < 2,
+// }));
 
 /**
  * Solicita el permiso QUERY_ALL_PACKAGES en Android
@@ -33,13 +32,28 @@ export const requestQueryAppPermission = async () => {
 
 /**
  * Verifica si PACKAGE_USAGE_STATS está permitido
- * NOTA: En Expo, requiere módulo nativo. Por ahora retorna true.
- * El usuario debe habilitar manualmente en Settings si quiere datos reales.
+ * En builds nativas Android, intenta usar el módulo UsageStatsModule
+ * En Expo, retorna false (datos simulados)
  */
 export const checkPackageUsageStatsPermission = async () => {
-  // En Expo sin módulo nativo, no podemos verificar
-  // Retornamos false para mostrar el warning al usuario
-  console.info('PACKAGE_USAGE_STATS: Requiere módulo nativo (no disponible en Expo)');
+  if (Platform.OS !== 'android') {
+    return false;
+  }
+
+  try {
+    const { UsageStatsModule } = NativeModules;
+    console.log('🔍 Buscando UsageStatsModule...', UsageStatsModule ? 'ENCONTRADO' : 'NO ENCONTRADO');
+    
+    if (UsageStatsModule && typeof UsageStatsModule.getAppUsageStats === 'function') {
+      console.info('✓ PACKAGE_USAGE_STATS: Módulo nativo disponible');
+      return true;
+    } else {
+      console.warn('⚠️ UsageStatsModule existe pero getAppUsageStats no es función');
+    }
+  } catch (error) {
+    console.warn('PACKAGE_USAGE_STATS: Módulo nativo no disponible', error.message);
+  }
+  
   return false;
 };
 
@@ -70,75 +84,62 @@ export const requestPackageUsageStatsPermission = async () => {
 
 /**
  * Obtiene la lista de aplicaciones instaladas del sistema
- * Si no es posible acceder, retorna la lista de ejemplo predefinida
+ * Solo Android soportado. Web e iOS retornan array vacío.
  */
 export const getInstalledApps = async () => {
   // En web no hay acceso a apps nativas
   if (Platform.OS === 'web') {
-    console.log('Plataforma web: usando lista de ejemplo');
-    return DEFAULT_APPS;
+    console.log('Plataforma web: no hay acceso a apps');
+    return [];
   }
 
-  // En iOS, usamos la lista de ejemplo (no hay acceso a lista de apps instaladas)
+  // En iOS, no hay acceso a lista de apps instaladas
   if (Platform.OS === 'ios') {
-    console.log('Plataforma iOS: usando lista de ejemplo');
-    return DEFAULT_APPS;
+    console.log('Plataforma iOS: no hay acceso a apps instaladas');
+    return [];
   }
 
   // En Android, intentamos obtener la lista real de apps
   if (Platform.OS === 'android') {
     try {
-      // Intentar obtener apps instaladas directamente
-      // QUERY_ALL_PACKAGES es de "Especial acceso" y react-native-permissions
-      // puede no manejarlo como un permiso normal de runtime en todas las versiones.
-      // Con las <queries> en el Manifest, getInstalledPackages debería ver las apps listadas.
+      console.log('🔍 [DEBUG] Iniciando getInstalledApps en Android...');
       
+      // PASO 1: Verificar versión Android
+      const androidVersion = await DeviceInfo.getApiLevel();
+      console.log(`📱 API Level: ${androidVersion}`);
+      
+      // PASO 2: Solicitar permiso PROACTIVAMENTE (no esperar a que falle)
+      console.log('📋 Solicitando QUERY_ALL_PACKAGES...');
+      const permissionGranted = await requestQueryAppPermission();
+      console.log(`🔐 Permiso QUERY_ALL_PACKAGES: ${permissionGranted ? 'OTORGADO ✓' : 'DENEGADO ✗'}`);
+      
+      // PASO 3: Obtener packages
       let installedPackages = [];
-      
       try {
+        console.log('🚀 Llamando DeviceInfo.getInstalledPackages()...');
         installedPackages = await DeviceInfo.getInstalledPackages();
-        console.log(`✓ Se obtuvieron ${installedPackages.length} apps instaladas via DeviceInfo`);
-      } catch (deviceInfoError) {
-        console.warn('Error en DeviceInfo.getInstalledPackages():', deviceInfoError.message);
-      }
-
-      // Si falló DeviceInfo o regresó vacío, intentar con el permiso si es necesario
-      if (installedPackages.length === 0) {
-        console.log('Intentando solicitar permiso QUERY_ALL_PACKAGES...');
-        const permissionGranted = await requestQueryAppPermission();
+        console.log(`✓ DeviceInfo retornó: ${Array.isArray(installedPackages) ? installedPackages.length : 'NO ARRAY'} items`);
         
-        if (permissionGranted) {
-           try {
-             installedPackages = await DeviceInfo.getInstalledPackages();
-           } catch (e) {
-             console.warn('Re-intento tras permiso falló');
-           }
+        // DEBUG: mostrar primeras 5 apps
+        if (installedPackages.length > 0) {
+          console.log('📦 Primeras 5 apps:', installedPackages.slice(0, 5));
         }
-      }
-      
-      // Fallback a NativeModules si sigue vacío
-      if (installedPackages.length === 0) {
-        try {
-          const { RNInstalledApps } = NativeModules;
-          if (RNInstalledApps && typeof RNInstalledApps.getInstalledApps === 'function') {
-            installedPackages = await RNInstalledApps.getInstalledApps();
-            console.log(`✓ Obtenidas apps vía RNInstalledApps: ${installedPackages.length}`);
-          }
-        } catch (nativeError) {
-          console.warn('Fallback a módulo nativo falló:', nativeError.message);
-        }
+      } catch (deviceInfoError) {
+        console.warn('❌ Error en DeviceInfo.getInstalledPackages():', deviceInfoError);
+        console.warn('   Message:', deviceInfoError.message);
+        console.warn('   Stack:', deviceInfoError.stack);
       }
 
       if (!installedPackages || installedPackages.length === 0) {
-        console.warn('No se obtuvieron apps instaladas, usando lista de ejemplo');
-        return DEFAULT_APPS;
+        console.warn('⚠️  PROBLEMA: getInstalledPackages retornó vacío');
+        console.warn('   Si permiso=true y result=[], es problema de linking/build');
+        console.warn('   Si permiso=false, usuario no otorgó permiso');
+        return [];
       }
 
-      // El resultado de getInstalledPackages puede ser un array de strings (nombres de paquetes)
-      // o un array de objetos dependiendo de la versión/implementación.
-      // Normalizamos a strings.
+      // DeviceInfo.getInstalledPackages retorna array de strings (packageNames)
       const packageNames = installedPackages.map(pkg => 
-        typeof pkg === 'string' ? pkg : pkg.packageName || pkg.bundleId
+        typeof pkg === 'string' ? pkg : (pkg.packageName || pkg)
       ).filter(Boolean);
 
       // Mapear todas las apps instaladas y agregar la información de MONITOREABLE_APPS si coincide
@@ -166,13 +167,12 @@ export const getInstalledApps = async () => {
 
     } catch (error) {
       console.error('Error inesperado al obtener apps instaladas:', error);
-      console.log('Usando lista de ejemplo como fallback');
-      return DEFAULT_APPS;
+      return [];
     }
   }
 
-  // Fallback para plataformas desconocidas
-  return DEFAULT_APPS;
+  // Plataforma desconocida
+  return [];
 };
 
 /**
@@ -180,7 +180,7 @@ export const getInstalledApps = async () => {
  * Uso: const { apps, loading, error } = useInstalledApps();
  */
 export const useInstalledApps = () => {
-  const [apps, setApps] = React.useState(DEFAULT_APPS);
+  const [apps, setApps] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
 
@@ -192,7 +192,7 @@ export const useInstalledApps = () => {
         setApps(loadedApps);
       } catch (err) {
         setError(err);
-        setApps(DEFAULT_APPS);
+        setApps([]);
       } finally {
         setLoading(false);
       }
@@ -204,10 +204,55 @@ export const useInstalledApps = () => {
   return { apps, loading, error };
 };
 
+/**
+ * DIAGNÓSTICO: Prueba completa del estado del módulo DeviceInfo
+ * Útil para debugging
+ */
+export const diagnoseDeviceInfo = async () => {
+  const diagnosis = {
+    platform: Platform.OS,
+    timestamp: new Date().toISOString(),
+    checks: {}
+  };
+
+  if (Platform.OS !== 'android') {
+    diagnosis.checks.platform = '❌ No es Android';
+    return diagnosis;
+  }
+
+  try {
+    // Check 1: Módulo existe
+    const hasGetInstalledPackages = typeof DeviceInfo.getInstalledPackages === 'function';
+    diagnosis.checks.moduleLoaded = hasGetInstalledPackages ? '✓' : '❌ Módulo no cargado';
+    
+    // Check 2: API Level
+    const apiLevel = await DeviceInfo.getApiLevel();
+    diagnosis.checks.apiLevel = `${apiLevel} (${apiLevel >= 30 ? 'Android 11+' : 'Android <11'})`;
+    
+    // Check 3: Permiso
+    const permGranted = await requestQueryAppPermission();
+    diagnosis.checks.permission = permGranted ? '✓ Otorgado' : '❌ Denegado';
+    
+    // Check 4: Llamada a getInstalledPackages
+    try {
+      const packages = await DeviceInfo.getInstalledPackages();
+      diagnosis.checks.getInstalledPackages = Array.isArray(packages) ? 
+        `✓ Retornó ${packages.length} paquetes` : 
+        `❌ Retornó tipo ${typeof packages}`;
+    } catch (e) {
+      diagnosis.checks.getInstalledPackages = `❌ Error: ${e.message}`;
+    }
+    
+  } catch (error) {
+    diagnosis.checks.error = error.message;
+  }
+
+  return diagnosis;
+};
+
 export default {
   getInstalledApps,
   requestQueryAppPermission,
   checkPackageUsageStatsPermission,
   requestPackageUsageStatsPermission,
-  DEFAULT_APPS,
 };

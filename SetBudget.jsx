@@ -9,6 +9,8 @@ import { saveBudget } from './services/budgetService';
 import {
   getInstalledApps,
   requestQueryAppPermission,
+  checkPackageUsageStatsPermission,
+  diagnoseDeviceInfo,
   DEFAULT_APPS
 } from './services/appListService';
 
@@ -36,9 +38,12 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
             console.warn('Permiso QUERY_ALL_PACKAGES no concedido, usando lista de ejemplo');
           }
           
-          // Mostrar que PACKAGE_USAGE_STATS no es posible en Expo
-          setUsageStatsPermitted(false);
-          console.info('PACKAGE_USAGE_STATS: Usando datos simulados en Expo');
+          // Verificar si PACKAGE_USAGE_STATS está disponible (módulo nativo)
+          const statsPermitted = await checkPackageUsageStatsPermission();
+          setUsageStatsPermitted(statsPermitted);
+          if (!statsPermitted) {
+            console.info('PACKAGE_USAGE_STATS: Módulo nativo no disponible, usando datos simulados');
+          }
         }
         
         // Obtener la lista de apps
@@ -65,8 +70,15 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
     );
   };
 
-  // onSet_Budget — guardar presupuesto
-  const handleSave = async () => {
+  // onClick_Debug — diagnóstico de DeviceInfo
+  const handleDiagnose = async () => {
+    const result = await diagnoseDeviceInfo();
+    const message = Object.entries(result.checks)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+    
+    Alert.alert('🔍 Diagnóstico DeviceInfo', message);
+  };
     const selected = apps.filter(a => a.selected);
     if (selected.length === 0) {
       Alert.alert('Elige al menos una app', 'Necesitas seleccionar al menos una app para monitorear.');
@@ -158,6 +170,15 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
       {/* ── Sección: Presupuesto ── */}
       <Text style={styles.sectionLabel}>⏱️ Presupuesto de tiempo</Text>
       <BudgetSlider minutes={minutes} onChange={setMinutes} />
+
+      {/* ── Botón diagnóstico (debug) ── */}
+      <TouchableOpacity
+        style={styles.diagnosisBtn}
+        onPress={handleDiagnose}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.diagnosisBtnText}>🔍 Diagnóstico</Text>
+      </TouchableOpacity>
 
       {/* ── Botón guardar ── */}
       <TouchableOpacity
@@ -336,5 +357,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#333',
+  },
+  diagnosisBtn: {
+    backgroundColor: '#E8E0D0',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#D0C8B8',
+  },
+  diagnosisBtnText: {
+    color: '#7A6E62',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
