@@ -1,58 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TextInput,
-  TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform
+  TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform, Linking
 } from 'react-native';
 import AppRow from './components/AppRow';
 import BudgetSlider from './components/BudgetSlider';
 import { saveBudget } from './services/budgetService';
 import {
   getInstalledApps,
-  requestQueryAppPermission,
   checkPackageUsageStatsPermission,
-  diagnoseDeviceInfo,
-  DEFAULT_APPS
 } from './services/appListService';
 
 export default function SetBudget({ onBudgetSaved = () => {} }) {
-  const [apps, setApps]       = useState(DEFAULT_APPS);
+  const [apps, setApps]       = useState([]);
   const [loadingApps, setLoadingApps] = useState(true);
   const [appsError, setAppsError] = useState(null);
-  const [usageStatsPermitted, setUsageStatsPermitted] = useState(true);
+  const [usageStatsPermitted, setUsageStatsPermitted] = useState(false);
   const [minutes, setMinutes] = useState(120);
   const [search, setSearch]   = useState('');
   const [saving, setSaving]   = useState(false);
 
-  // Cargar lista de apps del sistema en el primer render
   useEffect(() => {
     const loadApps = async () => {
       try {
         setLoadingApps(true);
         setAppsError(null);
         
-        // Solicitar permisos si es Android
         if (Platform.OS === 'android') {
-          // Solicitar QUERY_ALL_PACKAGES
-          const permissionGranted = await requestQueryAppPermission();
-          if (!permissionGranted) {
-            console.warn('Permiso QUERY_ALL_PACKAGES no concedido, usando lista de ejemplo');
-          }
-          
-          // Verificar si PACKAGE_USAGE_STATS está disponible (módulo nativo)
           const statsPermitted = await checkPackageUsageStatsPermission();
           setUsageStatsPermitted(statsPermitted);
-          if (!statsPermitted) {
-            console.info('PACKAGE_USAGE_STATS: Módulo nativo no disponible, usando datos simulados');
-          }
         }
         
-        // Obtener la lista de apps
         const loadedApps = await getInstalledApps();
         setApps(loadedApps);
       } catch (error) {
         console.error('Error al cargar apps:', error);
         setAppsError(error.message);
-        setApps(DEFAULT_APPS);
+        setApps([]);
       } finally {
         setLoadingApps(false);
       }
@@ -61,7 +45,17 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
     loadApps();
   }, []);
 
-  // onClick_AppSelection — toggle de selección de app
+  const handleOpenSettings = async () => {
+    try {
+      Linking.openURL('android-app://com.android.settings/');
+    } catch (error) {
+      Alert.alert(
+        'Abrir Configuración',
+        'Por favor, ve a Configuración > Aplicaciones > ScreenBuddy > Permisos\ny activa los permisos necesarios.'
+      );
+    }
+  };
+
   const handleToggleApp = (packageName) => {
     setApps(prev =>
       prev.map(a =>
@@ -70,15 +64,11 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
     );
   };
 
-  // onClick_Debug — diagnóstico de DeviceInfo
   const handleDiagnose = async () => {
-    const result = await diagnoseDeviceInfo();
-    const message = Object.entries(result.checks)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n');
-    
-    Alert.alert('🔍 Diagnóstico DeviceInfo', message);
+    Alert.alert('Diagnóstico', 'Módulo nativo Expo activo');
   };
+
+  const handleSave = async () => {
     const selected = apps.filter(a => a.selected);
     if (selected.length === 0) {
       Alert.alert('Elige al menos una app', 'Necesitas seleccionar al menos una app para monitorear.');
@@ -91,7 +81,6 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
       '✅ ¡Guardado!',
       `Presupuesto: ${minutes} min\nApps monitoreadas: ${selected.length}\nUmbrales: ${config.thresholds.warn}/${config.thresholds.alert}/${config.thresholds.limit} min`
     );
-    // Llamar callback después de guardar exitosamente
     setTimeout(() => onBudgetSaved(), 1000);
   };
 
@@ -101,16 +90,30 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
   );
 
   const selectedCount = apps.filter(a => a.selected).length;
+  const permissionsMissing = !usageStatsPermitted;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
 
-      {/* Header */}
       <Text style={styles.functionTag}>onSet_Budget( ) — Evento activo</Text>
       <Text style={styles.title}>Configuración</Text>
       <Text style={styles.sub}>Elige las apps a monitorear y define tu presupuesto diario.</Text>
 
-      {/* ── Sección: Selección de apps ── */}
+      {permissionsMissing && (
+        <View style={styles.permissionBanner}>
+          <Text style={styles.permissionTitle}>🔐 Permisos requeridos</Text>
+          <Text style={styles.permissionText}>
+            ScreenBuddy necesita permisos para funcionar correctamente.
+          </Text>
+          <TouchableOpacity
+            style={styles.permissionButton}
+            onPress={handleOpenSettings}
+          >
+            <Text style={styles.permissionButtonText}>Abrir Configuración</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>📱 Apps instaladas</Text>
@@ -119,15 +122,13 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
           </View>
         </View>
 
-        {/* Advertencia - Datos Simulados en Expo */}
         {!usageStatsPermitted && Platform.OS === 'android' && (
           <View style={styles.warningBanner}>
             <Text style={styles.warningTitle}>ℹ️ Limitación de Expo</Text>
-            <Text style={styles.warningText}>Los datos de uso serán simulados en esta versión. Para datos reales, requiere compilación nativa con módulos Android.</Text>
+            <Text style={styles.warningText}>Los datos de uso serán simulados en esta versión.</Text>
           </View>
         )}
 
-        {/* Indicador de carga */}
         {loadingApps ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#1A1410" />
@@ -135,14 +136,12 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
           </View>
         ) : (
           <>
-            {/* Mensaje de advertencia si se usa lista de ejemplo */}
             {appsError && (
               <View style={styles.warningContainer}>
-                <Text style={styles.warningText}>⚠️ Usando lista de ejemplo ({appsError})</Text>
+                <Text style={styles.warningText}>⚠️ Error al cargar apps ({appsError})</Text>
               </View>
             )}
 
-            {/* Buscador */}
             <TextInput
               style={styles.search}
               placeholder="Buscar app..."
@@ -151,7 +150,6 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
               onChangeText={setSearch}
             />
 
-            {/* Lista de apps */}
             {filteredApps.length > 0 ? (
               filteredApps.map(app => (
                 <AppRow
@@ -167,11 +165,9 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
         )}
       </View>
 
-      {/* ── Sección: Presupuesto ── */}
       <Text style={styles.sectionLabel}>⏱️ Presupuesto de tiempo</Text>
       <BudgetSlider minutes={minutes} onChange={setMinutes} />
 
-      {/* ── Botón diagnóstico (debug) ── */}
       <TouchableOpacity
         style={styles.diagnosisBtn}
         onPress={handleDiagnose}
@@ -180,7 +176,6 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
         <Text style={styles.diagnosisBtnText}>🔍 Diagnóstico</Text>
       </TouchableOpacity>
 
-      {/* ── Botón guardar ── */}
       <TouchableOpacity
         style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
         onPress={handleSave}
@@ -228,6 +223,38 @@ const styles = StyleSheet.create({
     color: '#7A6E62',
     lineHeight: 20,
     marginBottom: 24,
+  },
+  permissionBanner: {
+    backgroundColor: '#FFE8E8',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF6B6B',
+  },
+  permissionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#C41C1C',
+    marginBottom: 8,
+  },
+  permissionText: {
+    fontSize: 13,
+    color: '#A01C1C',
+    lineHeight: 19,
+    marginBottom: 12,
+  },
+  permissionButton: {
+    backgroundColor: '#FF6B6B',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  permissionButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -339,24 +366,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#856404',
     marginBottom: 3,
-  },
-  warningText: {
-    fontSize: 12,
-    color: '#856404',
-    marginBottom: 8,
-  },
-  warningButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#FFC107',
-    borderRadius: 6,
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-  },
-  warningButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
   },
   diagnosisBtn: {
     backgroundColor: '#E8E0D0',

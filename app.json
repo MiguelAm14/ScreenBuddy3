@@ -37,6 +37,9 @@
       "eas": {
         "projectId": "7262bd2a-cd67-4c2a-b267-3dc366b159e9"
       }
-    }
+    },
+    "plugins": [
+      "react-native-permissions"
+    ]
   }
 }

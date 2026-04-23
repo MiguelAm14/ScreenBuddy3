@@ -32,9 +32,9 @@ export async function getRealAppUsage(monitoredApps) {
 /**
  * Monitorea uso de apps en tiempo real con polling
  * Retorna unsubscribe function
- * Si no hay datos reales, usa fallback aleatorio
+ * NOTA: Si no hay datos reales, retorna {} (no fallback a datos aleatorios)
  */
-export function subscribeToAppUsage(monitoredApps, intervalMs = 5000, onUpdate) {
+export function subscribeToAppUsage(monitoredApps, intervalMs = 10000, onUpdate) {
   let isSubscribed = true;
   let timeoutId = null;
 
@@ -42,17 +42,13 @@ export function subscribeToAppUsage(monitoredApps, intervalMs = 5000, onUpdate) 
     if (!isSubscribed) return;
 
     try {
-      let usage = await getRealAppUsage(monitoredApps);
-      
-      // Si no hay datos reales (vacío), usar fallback aleatorio
-      if (Object.keys(usage).length === 0) {
-        console.warn('Sin datos reales, usando fallback aleatorio');
-        usage = generateRandomUsage(monitoredApps, 120);
-      }
-      
+      const usage = await getRealAppUsage(monitoredApps);
+      // Retorna datos reales o {} vacío
+      // NO usa fallback a datos aleatorios
       onUpdate(usage);
     } catch (error) {
       console.error('Error en polling de uso:', error);
+      onUpdate({}); // En error, retornar vacío
     }
 
     if (isSubscribed) {
@@ -72,41 +68,6 @@ export function subscribeToAppUsage(monitoredApps, intervalMs = 5000, onUpdate) 
   };
 }
 
-// Genera datos aleatorios de uso por app (solo para testing/fallback)
-export function generateRandomUsage(monitoredApps, totalMinutes) {
-  const usage = {};
-  
-  // Generar un tiempo total aleatorio entre 0% y 100% de la meta
-  const minTotalTime = 0;
-  const maxTotalTime = totalMinutes;
-  const randomTotal = Math.floor(Math.random() * (maxTotalTime - minTotalTime + 1)) + minTotalTime;
-  
-  let remaining = randomTotal;
-  const appsCount = monitoredApps.length;
-
-  // Distribuir el tiempo random entre las apps seleccionadas
-  monitoredApps.forEach((app, index) => {
-    if (index === appsCount - 1) {
-      // La última app obtiene exactamente lo que queda del tiempo aleatorio
-      usage[app.packageName] = Math.max(0, remaining);
-    } else {
-      if (remaining <= 0) {
-        usage[app.packageName] = 0;
-      } else {
-        // Calcula el máximo que puede tomar esta app (50% del tiempo restante)
-        const maxForThisApp = Math.max(1, Math.floor(remaining / 2));
-        
-        // Minuto aleatorio entre 1 y el máximo calculado
-        const randomMinutes = Math.floor(Math.random() * maxForThisApp) + 1;
-        
-        usage[app.packageName] = randomMinutes;
-        remaining -= randomMinutes;
-      }
-    }
-  });
-
-  return usage;
-}
 
 // Calcula el porcentaje de la meta cumplida
 export function calculateUsagePercentage(currentMinutes, budgetMinutes) {
