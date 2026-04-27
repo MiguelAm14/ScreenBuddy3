@@ -65,7 +65,34 @@ export default function SetBudget({ onBudgetSaved = () => {} }) {
   };
 
   const handleDiagnose = async () => {
-    Alert.alert('Diagnóstico', 'Módulo nativo Expo activo');
+    const { NativeModules } = require('react-native');
+    const { requireNativeModule } = require('expo-modules-core');
+    
+    let moduleStatus = 'NULL ❌';
+    let appsCount = 'N/A';
+    let errorMsg = 'ninguno';
+
+    try {
+      const mod = requireNativeModule('InstalledAppsModule');
+      moduleStatus = mod ? 'ENCONTRADO ✅' : 'NULL ❌';
+      
+      if (mod) {
+        try {
+          const apps = await mod.getInstalledApps();
+          appsCount = Array.isArray(apps) ? `${apps.length} apps` : `tipo: ${typeof apps}`;
+        } catch (e) {
+          appsCount = `Error: ${e.message}`;
+        }
+      }
+    } catch (e) {
+      moduleStatus = `ERROR: ${e.message}`;
+      errorMsg = e.message;
+    }
+
+    Alert.alert(
+      '🔍 Diagnóstico',
+      `Módulo: ${moduleStatus}\nApps obtenidas: ${appsCount}\nError: ${errorMsg}\nPlataforma: ${Platform.OS}`
+    );
   };
 
   const handleSave = async () => {

@@ -1,5 +1,7 @@
 import { Platform, NativeModules, Alert } from 'react-native';
 import { requireNativeModule } from 'expo-modules-core';
+import { enrichAppsMetadata } from './appMetadataService';
+import React from 'react';
 
 let InstalledAppsModule;
 try {
@@ -8,11 +10,9 @@ try {
   InstalledAppsModule = null;
 }
 
-import { enrichAppsMetadata } from './appMetadataService';
-import React from 'react';
-
-
 export const DEFAULT_APPS = [];
+
+// ... resto del archivo igual
 
 /**
  * Obtiene la lista de aplicaciones instaladas usando módulo nativo propio

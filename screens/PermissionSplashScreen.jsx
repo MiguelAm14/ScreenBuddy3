@@ -9,23 +9,40 @@ import {
   Linking,
   Platform,
   ActivityIndicator,
+  AppState,
 } from 'react-native';
-import { checkPackageUsageStatsPermission, requestQueryAppPermission } from '../services/appListService';
+import { requireNativeModule } from 'expo-modules-core';
+import { checkPackageUsageStatsPermission } from '../services/appListService';
 
-/**
- * PermissionSplashScreen - Onboarding de permisos en primer lanzamiento
- * Muestra qué permisos necesita la app y cómo habilitarlos
- * Se muestra solo UNA VEZ (controlado por AsyncStorage)
- */
+let SettingsModule;
+try {
+  SettingsModule = requireNativeModule('SettingsModule');
+} catch (e) {
+  SettingsModule = null;
+}
+
 export default function PermissionSplashScreen({ onComplete }) {
-  const [queryPermissionGranted, setQueryPermissionGranted] = useState(false);
   const [usageStatsPermitted, setUsageStatsPermitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [appState, setAppState] = useState(AppState.currentState);
 
-  // Verificar estado actual de permisos
   useEffect(() => {
     checkPermissionsStatus();
   }, []);
+
+  // Re-chequear permisos cuando app vuelve al foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, []);
+
+  const handleAppStateChange = async (nextAppState) => {
+    if (appState.match(/inactive|background/) && nextAppState === 'active') {
+      // App vuelve al foreground desde Settings
+      checkPermissionsStatus();
+    }
+    setAppState(nextAppState);
+  };
 
   const checkPermissionsStatus = async () => {
     if (Platform.OS !== 'android') {
@@ -35,17 +52,9 @@ export default function PermissionSplashScreen({ onComplete }) {
 
     try {
       setLoading(true);
-      
-      // Check QUERY_ALL_PACKAGES
-      const queryGranted = await requestQueryAppPermission();
-      setQueryPermissionGranted(queryGranted);
-      
-      // Check PACKAGE_USAGE_STATS
       const statsPermitted = await checkPackageUsageStatsPermission();
       setUsageStatsPermitted(statsPermitted);
-      
-      // Si ambos están granted, completar
-      if (queryGranted && statsPermitted) {
+      if (statsPermitted) {
         setTimeout(() => onComplete?.(), 500);
       }
     } catch (error) {
@@ -57,24 +66,27 @@ export default function PermissionSplashScreen({ onComplete }) {
 
   const handleOpenSettings = async () => {
     try {
-      // Abrir Settings de Android para permisos
-      Linking.openURL('android-app://com.android.settings/');
+      if (Platform.OS === 'android' && SettingsModule) {
+        // Abrir directamente a Settings > Usage Access
+        await SettingsModule.openUsageAccessSettings();
+      } else {
+        // Fallback: Abrir Settings genérica
+        Linking.openURL('android-app://com.android.settings/');
+      }
     } catch (error) {
-      console.error('Error opening settings:', error);
       Alert.alert(
         'Abrir Configuración',
-        'Por favor, ve a Configuración > Aplicaciones > ScreenBuddy > Permisos\ny activa los permisos necesarios.'
+        'Por favor, ve a Configuración > Aplicaciones > Permisos > Acceso a Estadísticas de Uso\ny activa "ScreenBuddy".'
       );
     }
   };
 
   const handleContinueAnyway = () => {
-    // Permitir continuar incluso sin permisos (UI deshabilitada después)
     onComplete?.();
   };
 
-  if (!loading && (queryPermissionGranted && usageStatsPermitted)) {
-    return null; // Si ambos permisos OK, no mostrar splash
+  if (!loading && usageStatsPermitted) {
+    return null;
   }
 
   return (
@@ -83,7 +95,6 @@ export default function PermissionSplashScreen({ onComplete }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.emoji}>🔐</Text>
           <Text style={styles.title}>Permisos Necesarios</Text>
@@ -92,7 +103,6 @@ export default function PermissionSplashScreen({ onComplete }) {
           </Text>
         </View>
 
-        {/* Loading state */}
         {loading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#4CAF50" />
@@ -102,15 +112,6 @@ export default function PermissionSplashScreen({ onComplete }) {
 
         {!loading && (
           <>
-            {/* Permission 1: QUERY_ALL_PACKAGES */}
-            <PermissionCard
-              emoji="📱"
-              title="Acceso a lista de apps"
-              description="Necesitamos ver qué apps tienes instaladas para que puedas monitorearlas."
-              granted={queryPermissionGranted}
-            />
-
-            {/* Permission 2: PACKAGE_USAGE_STATS */}
             <PermissionCard
               emoji="📊"
               title="Estadísticas de uso"
@@ -118,19 +119,17 @@ export default function PermissionSplashScreen({ onComplete }) {
               granted={usageStatsPermitted}
             />
 
-            {/* Info box */}
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>💡 Cómo activarlos:</Text>
               <Text style={styles.infoText}>
                 {Platform.OS === 'android'
-                  ? '1. Toca "Abrir Configuración" abajo\n2. Ve a Permisos\n3. Activa los permisos solicitados\n4. Vuelve a la app'
+                  ? '1. Toca "Abrir Configuración" abajo\n2. Busca y selecciona "ScreenBuddy"\n3. Activa "Permitir acceso a estadísticas de uso"\n4. Vuelve a la app'
                   : 'Los permisos se solicitan automáticamente.'}
               </Text>
             </View>
 
-            {/* Buttons */}
             <View style={styles.buttonContainer}>
-              {!(queryPermissionGranted && usageStatsPermitted) && (
+              {!usageStatsPermitted && (
                 <>
                   <TouchableOpacity
                     style={styles.buttonPrimary}
@@ -152,7 +151,7 @@ export default function PermissionSplashScreen({ onComplete }) {
                 </>
               )}
 
-              {queryPermissionGranted && usageStatsPermitted && (
+              {usageStatsPermitted && (
                 <TouchableOpacity
                   style={styles.buttonPrimary}
                   onPress={onComplete}
@@ -168,17 +167,9 @@ export default function PermissionSplashScreen({ onComplete }) {
   );
 }
 
-/**
- * PermissionCard - Componente para mostrar estado de cada permiso
- */
 function PermissionCard({ emoji, title, description, granted }) {
   return (
-    <View
-      style={[
-        styles.permissionCard,
-        { borderLeftColor: granted ? '#4CAF50' : '#FF9800' },
-      ]}
-    >
+    <View style={[styles.permissionCard, { borderLeftColor: granted ? '#4CAF50' : '#FF9800' }]}>
       <View style={styles.permissionHeader}>
         <Text style={styles.permissionEmoji}>{emoji}</Text>
         <View style={styles.permissionTitleContainer}>
